@@ -699,7 +699,8 @@ namespace OpenMetaverse.Rendering
                 var vw = new VertexWeight();
                 int influence = 0;
 
-                while (idx < data.Length)
+                // Four influences end a vertex without the 0xFF sentinel (LLVolumeFace::unpackVolumeFaces)
+                while (idx < data.Length && influence < 4)
                 {
                     int jointIdx = data[idx++];
                     if (jointIdx == 0xFF)

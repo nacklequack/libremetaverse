@@ -48,6 +48,15 @@ namespace OpenMetaverse.ImportExport
         /// </summary>
         public bool UseModelAsPhysics;
 
+        /// <summary>Permissions for everyone on the uploaded object</summary>
+        public PermissionMask EveryoneMask = PermissionMask.All;
+
+        /// <summary>Permissions for the group on the uploaded object</summary>
+        public PermissionMask GroupMask = PermissionMask.All;
+
+        /// <summary>Permissions for the next owner of the uploaded object</summary>
+        public PermissionMask NextOwnerMask = PermissionMask.All;
+
         GridClient Client;
         List<ModelPrim> Prims;
 
@@ -98,7 +107,8 @@ namespace OpenMetaverse.ImportExport
                         ["fullbright"] = false
                     };
 
-                    if (face.Material.TextureData != null)
+                    // TextureData defaults to empty; an empty texture is rejected as TEXTURE_EMPTY
+                    if (face.Material.TextureData is { Length: > 0 })
                     {
                         int index;
                         if (ImgIndex.TryGetValue(face.Material.Texture, out var value))
@@ -129,8 +139,10 @@ namespace OpenMetaverse.ImportExport
                 primMap["scale"] = prim.Scale;
 
                 primMap["material"] = 3; // always sent as "wood" material
-                primMap["physics_shape_type"] = 2; // always sent as "convex hull";
+                primMap["physics_shape_type"] = prim.PhysicsShapeType;
                 primMap["mesh"] = meshes.Count;
+                if (!string.IsNullOrEmpty(prim.Name))
+                    primMap["mesh_name"] = prim.Name;
                 meshes.Add(prim.Asset);
 
 
@@ -229,9 +241,9 @@ namespace OpenMetaverse.ImportExport
                 ["inventory_type"] = "object",
                 ["folder_id"] = Client.Inventory.FindFolderForType(AssetType.Object),
                 ["texture_folder_id"] = Client.Inventory.FindFolderForType(AssetType.Texture),
-                ["everyone_mask"] = (int) PermissionMask.All,
-                ["group_mask"] = (int) PermissionMask.All,
-                ["next_owner_mask"] = (int) PermissionMask.All
+                ["everyone_mask"] = (int) EveryoneMask,
+                ["group_mask"] = (int) GroupMask,
+                ["next_owner_mask"] = (int) NextOwnerMask
             };
 
             await Client.HttpCapsClient.PostRequestAsync(cap, OSDFormat.Xml, payload, cancellationToken,
@@ -282,15 +294,9 @@ namespace OpenMetaverse.ImportExport
         /// <param name="cancellationToken">Cancellation token for network operation</param>
         public async Task PerformUpload(Uri uploader, ModelUploadCallback? callback, CancellationToken cancellationToken)
         {
-            Uri? cap = Client.Network.CurrentSim?.Caps?.CapabilityURI("MeshUploader");
-            if (cap == null)
-            {
-                Logger.Warn("Cannot upload mesh, MeshUploader capability not available");
-                callback?.Invoke(null);
-                return;
-            }
-
-            await Client.HttpCapsClient.PostRequestAsync(cap, OSDFormat.Xml, AssetResources(true),
+            // The quote's one-time uploader URL takes the upload, as in the viewer
+            // (LLMeshUploadThread::doWholeModelUpload)
+            await Client.HttpCapsClient.PostRequestAsync(uploader, OSDFormat.Xml, AssetResources(true),
                 cancellationToken, (response, data, error) =>
                 {
                     if (error != null)

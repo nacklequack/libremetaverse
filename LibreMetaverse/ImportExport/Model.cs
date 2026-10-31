@@ -40,12 +40,60 @@ namespace OpenMetaverse.ImportExport
         public byte[] TextureData = Array.Empty<byte>();
     }
 
+    /// <summary>
+    /// One joint influence on a rigged mesh vertex
+    /// </summary>
+    public struct ModelVertexWeight
+    {
+        /// <summary>Index into <see cref="ModelSkin.JointNames"/></summary>
+        public int Joint;
+        /// <summary>Influence weight, 0 to 1</summary>
+        public float Weight;
+
+        public ModelVertexWeight(int joint, float weight)
+        {
+            Joint = joint;
+            Weight = weight;
+        }
+    }
+
+    /// <summary>
+    /// Skin (rigging) data for a mesh. Matrices use the row-vector convention of
+    /// <see cref="Matrix4"/>, which is also the order Second Life stores them in
+    /// (translation in M41, M42, M43).
+    /// </summary>
+    public class ModelSkin
+    {
+        /// <summary>Names of the avatar joints the mesh is bound to, e.g. mPelvis or BUTT</summary>
+        public List<string> JointNames = new List<string>();
+        /// <summary>One inverse bind matrix per joint, in avatar (Z-up, metres) space</summary>
+        public List<Matrix4> InverseBindMatrices = new List<Matrix4>();
+        /// <summary>Transform from mesh space to bind space, applied before the joints</summary>
+        public Matrix4 BindShapeMatrix = Matrix4.Identity;
+        /// <summary>
+        /// Optional joint position overrides (alt_inverse_bind_matrix). Leave null to
+        /// rig to the wearer's own skeleton without moving any joints.
+        /// </summary>
+        public List<Matrix4>? AlternateInverseBindMatrices;
+        /// <summary>Pelvis offset, written only with joint position overrides</summary>
+        public float PelvisOffset;
+        /// <summary>Lock the wearer's joint scale where a joint position is overridden</summary>
+        public bool LockScaleIfJointPosition;
+    }
+
     public class ModelFace
     {
         public List<Vertex> Vertices = new List<Vertex>();
         public List<uint> Indices = new List<uint>();
         public string MaterialID = string.Empty;
         public ModelMaterial Material = new ModelMaterial();
+        /// <summary>
+        /// Joint influences for a rigged face, one array per entry in <see cref="Vertices"/>.
+        /// Empty for a static face. Fill <see cref="Vertices"/> and <see cref="Indices"/>
+        /// directly for rigged faces: <see cref="AddVertex"/> merges vertices by position,
+        /// normal and UV alone.
+        /// </summary>
+        public List<ModelVertexWeight[]> Weights = new List<ModelVertexWeight[]>();
 
         private readonly Dictionary<Vertex, int> LookUp = new Dictionary<Vertex, int>();
 
@@ -80,6 +128,21 @@ namespace OpenMetaverse.ImportExport
         public List<ModelFace> Faces = new List<ModelFace>();
         public string ID = string.Empty;
         public byte[] Asset = Array.Empty<byte>();
+
+        /// <summary>Medium level of detail faces, in the same space as <see cref="Faces"/>. Optional.</summary>
+        public List<ModelFace>? MediumLodFaces;
+        /// <summary>Low level of detail faces. Optional.</summary>
+        public List<ModelFace>? LowLodFaces;
+        /// <summary>Lowest level of detail faces. Optional.</summary>
+        public List<ModelFace>? LowestLodFaces;
+        /// <summary>Triangle mesh used for "prim" physics. Optional.</summary>
+        public List<ModelFace>? PhysicsFaces;
+        /// <summary>Skin data for a rigged mesh, null for a static mesh</summary>
+        public ModelSkin? Skin;
+        /// <summary>Label sent with the upload (the viewer's mesh_name)</summary>
+        public string Name = string.Empty;
+        /// <summary>Physics shape type sent with the upload: 0 prim, 1 none, 2 convex hull</summary>
+        public int PhysicsShapeType = 2;
 
         public void CreateAsset(UUID creator)
         {
