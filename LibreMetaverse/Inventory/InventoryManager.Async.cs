@@ -202,6 +202,34 @@ namespace OpenMetaverse
             }
         }
 
+        /// <summary>
+        /// Upload the asset of a material (<see cref="AssetType.Material"/>) inventory item, as the viewer's
+        /// material editor does after creating the item. See <see cref="ImportExport.GltfMaterialAsset"/>.
+        /// </summary>
+        public async Task RequestUploadMaterialAssetAsync(byte[] data, UUID materialID, InventoryUploadedAssetCallback callback,
+            CancellationToken cancellationToken = default, IProgress<ProgressReport>? progress = null)
+        {
+            var cap = GetCapabilityURI("UpdateMaterialAgentInventory", false);
+            if (cap == null)
+            {
+                throw new InvalidOperationException("UpdateMaterialAgentInventory capability is not currently available");
+            }
+
+            var query = new OSDMap { { "item_id", OSD.FromUUID(materialID) } };
+
+            try
+            {
+                var result = await PostCapAsync(cap, query, cancellationToken, progress).ConfigureAwait(false);
+                UploadInventoryAssetResponse(new KeyValuePair<InventoryUploadedAssetCallback, byte[]>(callback, data),
+                    materialID, result, null, cancellationToken, progress);
+            }
+            catch (Exception ex)
+            {
+                UploadInventoryAssetResponse(new KeyValuePair<InventoryUploadedAssetCallback, byte[]>(callback, data),
+                    materialID, null, ex, cancellationToken, progress);
+            }
+        }
+
         public async Task RequestUpdateNotecardTaskAsync(byte[] data, UUID notecardID, UUID taskID, InventoryUploadedAssetCallback callback, 
             CancellationToken cancellationToken = default, IProgress<ProgressReport>? progress = null)
         {

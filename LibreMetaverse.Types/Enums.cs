@@ -298,9 +298,13 @@ namespace OpenMetaverse
         /// <summary></summary>
         Mesh = 22,
         /// <summary></summary>
-        Settings = 23,
+        Widget = 23,
         /// <summary></summary>
-        Material = 24,
+        Person = 24,
+        /// <summary></summary>
+        Settings = 25,
+        /// <summary></summary>
+        Material = 26,
     }
 
     /// <summary>

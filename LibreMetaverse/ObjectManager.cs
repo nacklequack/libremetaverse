@@ -2529,6 +2529,54 @@ namespace OpenMetaverse
 
             return matsToReturn;
         }
+
+        /// <summary>
+        /// Apply PBR material assets to object faces through the ModifyMaterialParams capability, as the
+        /// viewer's LLGLTFMaterialList does. Each face's material overrides are cleared. The viewer sends
+        /// at most 255 updates per request; so does this.
+        /// </summary>
+        /// <param name="sim">Region the objects are in</param>
+        /// <param name="faces">Object UUID, face (side) number and material asset UUID for each face</param>
+        /// <param name="cancellationToken">Cancellation token</param>
+        /// <returns>The failure message of the first request that failed, or null when every face was applied</returns>
+        public async Task<string?> ApplyRenderMaterialsAsync(Simulator sim,
+            IEnumerable<(UUID objectID, int side, UUID materialID)> faces, CancellationToken cancellationToken = default)
+        {
+            var uri = sim.Caps?.CapabilityURI("ModifyMaterialParams");
+            if (uri == null)
+                return "ModifyMaterialParams capability unavailable";
+
+            var all = faces.ToList();
+            for (var start = 0; start < all.Count; start += 255)
+            {
+                var updates = new OSDArray();
+                foreach (var (objectID, side, materialID) in all.Skip(start).Take(255))
+                {
+                    updates.Add(new OSDMap
+                    {
+                        ["object_id"] = objectID,
+                        ["side"] = side,
+                        ["asset_id"] = materialID,
+                        ["gltf_json"] = ""
+                    });
+                }
+
+                string? failure = null;
+                await Client.HttpCapsClient.PostRequestAsync(uri, OSDFormat.Xml, updates, cancellationToken,
+                    (response, data, error) =>
+                    {
+                        if (error != null)
+                            failure = error.Message;
+                        else if (data == null || OSDParser.Deserialize(data) is not OSDMap result)
+                            failure = "no response";
+                        else if (!result["success"].AsBoolean())
+                            failure = result["message"].AsString();
+                    }).ConfigureAwait(false);
+                if (failure != null)
+                    return failure;
+            }
+            return null;
+        }
         #endregion
 
 
