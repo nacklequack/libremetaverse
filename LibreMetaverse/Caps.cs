@@ -276,9 +276,47 @@ namespace OpenMetaverse
         private void MakeSeedRequest()
         {
             if (Simulator == null || !Simulator.Client.Network.Connected) { return; }
+            // Disconnect cancels and disposes the token source; a request made after that has nothing to ask for
+            if (_HttpCts.IsCancellationRequested) { return; }
 
-            Task loginReq = Simulator.Client.HttpCapsClient.PostRequestAsync(_SeedCapsURI, OSDFormat.Xml, Caps.AllCapabilities, 
+            Task loginReq = Simulator.Client.HttpCapsClient.PostRequestAsync(_SeedCapsURI, OSDFormat.Xml, Caps.AllCapabilities,
                 _HttpCts.Token, SeedRequestCompleteHandler);
+        }
+
+        /// <summary>How many times the seed capability is asked for before the system gives up</summary>
+        private const int MaxSeedAttempts = 6;
+        private int _seedAttempts;
+
+        /// <summary>
+        /// Asks for the seed capability again after a pause that doubles each time. The retry used to cancel and dispose
+        /// _HttpCts, which every request of this caps system shares, and then read its token, so it threw
+        /// ObjectDisposedException and never ran (as upstream's ScheduleSeedRetry, ported here).
+        /// </summary>
+        private void ScheduleSeedRetry()
+        {
+            // A failure that arrives after the system was disconnected is the cancellation, not a reason to ask again
+            if (_HttpCts.IsCancellationRequested) return;
+
+            int attempt = Interlocked.Increment(ref _seedAttempts);
+            if (attempt >= MaxSeedAttempts)
+            {
+                Logger.Error($"The seed capability could not be reached after {attempt} attempts, capability system is giving up");
+                return;
+            }
+
+            Logger.Info($"Trying the seed capability again (attempt {attempt + 1} of {MaxSeedAttempts})");
+            _ = RetrySeedRequestAsync(TimeSpan.FromSeconds(Math.Min(30, 1 << (attempt - 1))));
+        }
+
+        private async Task RetrySeedRequestAsync(TimeSpan delay)
+        {
+            try
+            {
+                await Task.Delay(delay, _HttpCts.Token).ConfigureAwait(false);
+                MakeSeedRequest();
+            }
+            catch (OperationCanceledException) { }   // the caps system was disconnected
+            catch (ObjectDisposedException) { }
         }
 
         private void SeedRequestCompleteHandler(HttpResponseMessage? response, byte[]? responseData, Exception? error)
@@ -291,12 +329,8 @@ namespace OpenMetaverse
                 }
                 else
                 {
-                    Logger.Warn($"Seed capability returned {(response == null ? "no response" : response.StatusCode.ToString())}. Trying again.");
-                    // Retry the seed request after disposing/renewing the previous CTS to avoid using canceled token
-                    DisposalHelper.SafeCancelAndDispose(_HttpCts, (m, e) => { if (e != null) Logger.Debug(m, e); else Logger.Debug(m); });
-                    // Create a fresh CTS for retry
-                    // Note: _HttpCts is readonly, so we cannot reassign; instead, call MakeSeedRequest only if the original CTS hasn't been disposed.
-                    MakeSeedRequest();
+                    Logger.Warn($"Seed capability returned {(response == null ? "no response" : response.StatusCode.ToString())}.");
+                    ScheduleSeedRetry();
                 }
                 return;
             }
